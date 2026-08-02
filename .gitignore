@@ -1,0 +1,25 @@
+# Binaries & Build Output
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Environment & Credentials
+.env
+.env.local
+.env.*.local
+
+# Temporary files & Live Reload
+tmp/
+*.log
+
+# IDE & OS
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
