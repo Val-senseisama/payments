@@ -3,6 +3,8 @@ package users
 import (
 	"context"
 	"database/sql"
+	"fmt"
+	"time"
 
 	"github.com/Val-senseisama/payments/types"
 	"github.com/google/uuid"
@@ -125,3 +127,63 @@ func (s *Store) GetUserByID(ctx context.Context, id uuid.UUID) (*types.User, err
 	}
 	return user, nil
 }
+
+func (s *Store) CreateToken(ctx context.Context, userID uuid.UUID, token string, tokenType string, expiresAt time.Time) (*types.Token, error) {
+	query := `
+		INSERT INTO tokens (user_id, token, type, expires_at)
+		VALUES ($1, $2, $3, $4)
+		RETURNING id, user_id, token, type, expires_at, used_at, created_at
+	`
+	var t types.Token
+	err := s.db.QueryRowContext(ctx, query, userID, token, tokenType, expiresAt).Scan(
+		&t.ID,
+		&t.UserID,
+		&t.Token,
+		&t.Type,
+		&t.ExpiresAt,
+		&t.UsedAt,
+		&t.CreatedAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create token: %w", err)
+	}
+	return &t, nil
+}
+
+func (s *Store) GetValidToken(ctx context.Context, userID uuid.UUID, token string, tokenType string) (*types.Token, error) {
+	query := `
+		SELECT id, user_id, token, type, expires_at, used_at, created_at
+		FROM tokens
+		WHERE user_id = $1 AND token = $2 AND type = $3 AND used_at IS NULL AND expires_at > NOW()
+		ORDER BY created_at DESC
+		LIMIT 1
+	`
+	var t types.Token
+	err := s.db.QueryRowContext(ctx, query, userID, token, tokenType).Scan(
+		&t.ID,
+		&t.UserID,
+		&t.Token,
+		&t.Type,
+		&t.ExpiresAt,
+		&t.UsedAt,
+		&t.CreatedAt,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("invalid or expired token")
+		}
+		return nil, fmt.Errorf("failed to get token: %w", err)
+	}
+	return &t, nil
+}
+
+func (s *Store) MarkTokenUsed(ctx context.Context, id uuid.UUID) error {
+	query := `
+		UPDATE tokens
+		SET used_at = NOW()
+		WHERE id = $1
+	`
+	_, err := s.db.ExecContext(ctx, query, id)
+	return err
+}
+

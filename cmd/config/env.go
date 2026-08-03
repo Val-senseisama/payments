@@ -22,6 +22,8 @@ type Config struct {
 	RedisAddr            string
 	RedisPassword        string
 	RedisDB              int
+	ResendAPIKey         string
+	EmailFrom            string
 }
 
 func InitConfig() Config {
@@ -41,6 +43,8 @@ func InitConfig() Config {
 		RedisAddr:            getEnv("REDIS_ADDR", "127.0.0.1:6379"),
 		RedisPassword:        getEnv("REDIS_PASSWORD", ""),
 		RedisDB:              int(getEnvInt("REDIS_DB", 0)),
+		ResendAPIKey:         getEnv("RESEND_API_KEY", ""),
+		EmailFrom:            getEnv("EMAIL_FROM", "Payments <noreply@yourdomain.com>"),
 	}
 }
 

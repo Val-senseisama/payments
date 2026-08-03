@@ -6,9 +6,12 @@ import (
 	"net/http"
 
 	"github.com/Val-senseisama/payments/cmd/config"
+	"github.com/Val-senseisama/payments/internal/common/auth"
 	"github.com/Val-senseisama/payments/internal/common/redis"
 	"github.com/Val-senseisama/payments/internal/domain/company"
+	"github.com/Val-senseisama/payments/internal/domain/profiles"
 	"github.com/Val-senseisama/payments/internal/domain/users"
+	"github.com/Val-senseisama/payments/internal/mailer"
 	"github.com/Val-senseisama/payments/types"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -21,6 +24,7 @@ type APIServer struct {
 	db         *sql.DB
 	rdb        *redisClient.Client
 	auditStore types.AuditStore
+	mailer     *mailer.Mailer
 }
 
 func NewAPIServer(addr string, cfg config.Config, db *sql.DB, rdb *redisClient.Client, auditStore types.AuditStore) *APIServer {
@@ -30,13 +34,14 @@ func NewAPIServer(addr string, cfg config.Config, db *sql.DB, rdb *redisClient.C
 		db:         db,
 		rdb:        rdb,
 		auditStore: auditStore,
+		mailer:     mailer.New(cfg.ResendAPIKey, cfg.EmailFrom),
 	}
 }
 
 func (s *APIServer) mountUserRoutes(r chi.Router) {
 	userStore := users.NewStore(s.db)
 	redisStore := redis.NewRedisStore(s.rdb)
-	handler := users.NewHandler(userStore, redisStore, s.config, s.auditStore)
+	handler := users.NewHandler(userStore, redisStore, s.config, s.auditStore, s.mailer)
 
 	r.Route("/users", func(r chi.Router) {
 		handler.RegisterRoutes(r)
@@ -45,16 +50,25 @@ func (s *APIServer) mountUserRoutes(r chi.Router) {
 
 func (s *APIServer) mountCompanyRoutes(r chi.Router) {
 	companyStore := company.NewStore(s.db)
+	userStore := users.NewStore(s.db)
 	redisStore := redis.NewRedisStore(s.rdb)
-	handler := company.NewHandle(companyStore, redisStore, s.config, s.auditStore)
+	handler := company.NewHandler(companyStore, userStore, redisStore, s.config, s.auditStore, s.mailer)
 
 	r.Route("/companies", func(r chi.Router) {
 		handler.RegisterRoutes(r)
 	})
 }
 
+func (s *APIServer) mountProfileRoutes(r chi.Router) {
+	profileStore := profiles.NewStore(s.db)
+	handler := profiles.NewHandler(profileStore, s.config, s.auditStore)
+
+	r.Route("/profiles", func(r chi.Router) {
+		handler.RegisterRoutes(r)
+	})
+}
+
 func (s *APIServer) Run() error {
-	log.Println("Starting server on port ", s.addr)
 
 	router := chi.NewRouter()
 
@@ -63,7 +77,12 @@ func (s *APIServer) Run() error {
 
 	router.Route("/api/v1", func(r chi.Router) {
 		s.mountUserRoutes(r)
-		s.mountCompanyRoutes(r)
+
+		r.Group(func(r chi.Router) {
+			r.Use(auth.AuthMiddleware([]byte(s.config.JWTSecret)))
+			s.mountCompanyRoutes(r)
+			s.mountProfileRoutes(r)
+		})
 	})
 
 	router.Get("/health", s.handleHealth)

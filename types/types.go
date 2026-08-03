@@ -44,6 +44,9 @@ type UserStore interface {
 	GetUserByEmail(ctx context.Context, email string) (*User, error)
 	GetUserByID(ctx context.Context, id uuid.UUID) (*User, error)
 	AddUserToCompany(ctx context.Context, userID uuid.UUID, companyID uuid.UUID, role UserRole) error
+	CreateToken(ctx context.Context, userID uuid.UUID, token string, tokenType string, expiresAt time.Time) (*Token, error)
+	GetValidToken(ctx context.Context, userID uuid.UUID, token string, tokenType string) (*Token, error)
+	MarkTokenUsed(ctx context.Context, id uuid.UUID) error
 }
 
 type RedisStore interface {
@@ -52,12 +55,23 @@ type RedisStore interface {
 	DeleteRefreshToken(ctx context.Context, userID string) error
 }
 
+type ProfileStore interface {
+	CreateProfile(ctx context.Context, companyID uuid.UUID, pType ProfileType, name string, email, phone, avatarURL *string, metadata []byte) (*Profile, error)
+	GetProfileByID(ctx context.Context, id uuid.UUID) (*Profile, error)
+	GetProfilesByCompany(ctx context.Context, companyID uuid.UUID, pType *ProfileType) ([]*Profile, error)
+	UpdateProfile(ctx context.Context, id uuid.UUID, name *string, email, phone, avatarURL *string) (*Profile, error)
+	DeleteProfile(ctx context.Context, id uuid.UUID) (*Profile, error)
+}
+
 type CompanyStore interface {
 	CreateCompany(ctx context.Context, name string, createdBy uuid.UUID) (*Company, error)
 	GetCompanyByID(ctx context.Context, id uuid.UUID) (*Company, error)
 	GetCompanies(ctx context.Context) ([]*Company, error)
 	UpdateCompany(ctx context.Context, id uuid.UUID, name string) (*Company, error)
 	DeleteCompany(ctx context.Context, id uuid.UUID) (*Company, error)
+	CreateInvitationToken(ctx context.Context, companyID uuid.UUID, email string, role UserRole, token string, expiresAt time.Time) (*InvitationToken, error)
+	GetInvitationToken(ctx context.Context, token string) (*InvitationToken, error)
+	MarkInvitationTokenAccepted(ctx context.Context, id uuid.UUID) error
 }
 
 type AuditStore interface {
@@ -152,9 +166,49 @@ type CreateProfilePayload struct {
 	AvatarURL *string     `json:"avatar_url,omitempty"`
 }
 
+type UpdateProfilePayload struct {
+	Name      *string `json:"name,omitempty"`
+	Email     *string `json:"email,omitempty"`
+	Phone     *string `json:"phone,omitempty"`
+	AvatarURL *string `json:"avatar_url,omitempty"`
+}
+
+type InviteUserToCompanyPayload struct {
+	Email     string   `json:"email" validate:"required,email"`
+	Role      UserRole `json:"role,omitempty"`
+	CompanyID uuid.UUID `json:"company_id" validate:"required"`
+}
+
+type AcceptCompanyInvitePayload struct {
+	Token string `json:"token" validate:"required"`
+}
+
+type InvitationToken struct {
+	ID        uuid.UUID  `json:"id"`
+	CompanyID uuid.UUID  `json:"company_id"`
+	Email     string     `json:"email"`
+	Role      UserRole   `json:"role"`
+	Token     string     `json:"token"`
+	ExpiresAt time.Time  `json:"expires_at"`
+	AcceptedAt *time.Time `json:"accepted_at,omitempty"`
+	CreatedAt time.Time  `json:"created_at"`
+}
+
+type Token struct {
+	ID        uuid.UUID  `json:"id"`
+	UserID    uuid.UUID  `json:"user_id"`
+	Token     string     `json:"token"`
+	Type      string     `json:"type"`
+	ExpiresAt time.Time  `json:"expires_at"`
+	UsedAt    *time.Time `json:"used_at,omitempty"`
+	CreatedAt time.Time  `json:"created_at"`
+}
+
 type TokenPair struct {
 	AccessToken  string `json:"access_token"`
 	RefreshToken string `json:"refresh_token"`
 }
 
 type ContextKey string
+
+

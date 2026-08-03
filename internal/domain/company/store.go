@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"time"
 
 	"github.com/Val-senseisama/payments/types"
 	"github.com/google/uuid"
@@ -149,4 +150,63 @@ func (s *Store) DeleteCompany(ctx context.Context, id uuid.UUID) (*types.Company
 	}
 
 	return &company, nil
+}
+
+func (s *Store) CreateInvitationToken(ctx context.Context, companyID uuid.UUID, email string, role types.UserRole, token string, expiresAt time.Time) (*types.InvitationToken, error) {
+	query := `
+		INSERT INTO invitation_tokens (company_id, email, role, token, expires_at)
+		VALUES ($1, $2, $3, $4, $5)
+		RETURNING id, company_id, email, role, token, expires_at, accepted_at, created_at
+	`
+	var inv types.InvitationToken
+	err := s.db.QueryRowContext(ctx, query, companyID, email, string(role), token, expiresAt).Scan(
+		&inv.ID,
+		&inv.CompanyID,
+		&inv.Email,
+		&inv.Role,
+		&inv.Token,
+		&inv.ExpiresAt,
+		&inv.AcceptedAt,
+		&inv.CreatedAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create invitation token: %w", err)
+	}
+	return &inv, nil
+}
+
+func (s *Store) GetInvitationToken(ctx context.Context, token string) (*types.InvitationToken, error) {
+	query := `
+		SELECT id, company_id, email, role, token, expires_at, accepted_at, created_at
+		FROM invitation_tokens
+		WHERE token = $1
+	`
+	var inv types.InvitationToken
+	err := s.db.QueryRowContext(ctx, query, token).Scan(
+		&inv.ID,
+		&inv.CompanyID,
+		&inv.Email,
+		&inv.Role,
+		&inv.Token,
+		&inv.ExpiresAt,
+		&inv.AcceptedAt,
+		&inv.CreatedAt,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("invitation token not found")
+		}
+		return nil, fmt.Errorf("failed to get invitation token: %w", err)
+	}
+	return &inv, nil
+}
+
+func (s *Store) MarkInvitationTokenAccepted(ctx context.Context, id uuid.UUID) error {
+	query := `
+		UPDATE invitation_tokens
+		SET accepted_at = NOW()
+		WHERE id = $1
+	`
+	_, err := s.db.ExecContext(ctx, query, id)
+	return err
 }

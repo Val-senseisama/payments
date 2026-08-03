@@ -7,6 +7,9 @@ test:
 run: build
 	@./bin/payments
 
+dev:
+	@air
+
 migrate:
 	@migrate create -ext sql -dir cmd/migrations/sql -seq $(filter-out $@,$(MAKECMDGOALS))
 

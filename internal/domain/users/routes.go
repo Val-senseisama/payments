@@ -3,24 +3,29 @@ package users
 import (
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/Val-senseisama/payments/cmd/config"
 	"github.com/Val-senseisama/payments/internal/common"
 	"github.com/Val-senseisama/payments/internal/common/auth"
+	"github.com/Val-senseisama/payments/internal/mailer"
 	"github.com/Val-senseisama/payments/types"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 )
+
+const otpTTL = 10 * time.Minute
 
 type Handler struct {
 	store      types.UserStore
 	redisStore types.RedisStore
 	config     config.Config
 	auditStore types.AuditStore
+	mailer     *mailer.Mailer
 }
 
-func NewHandler(store types.UserStore, redisStore types.RedisStore, cfg config.Config, auditStore types.AuditStore) *Handler {
-	return &Handler{store: store, redisStore: redisStore, config: cfg, auditStore: auditStore}
+func NewHandler(store types.UserStore, redisStore types.RedisStore, cfg config.Config, auditStore types.AuditStore, m *mailer.Mailer) *Handler {
+	return &Handler{store: store, redisStore: redisStore, config: cfg, auditStore: auditStore, mailer: m}
 }
 
 func (h *Handler) RegisterRoutes(router chi.Router) {
@@ -98,27 +103,36 @@ func (h *Handler) RequestLoginOTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err := h.store.GetUserByEmail(r.Context(), payload.Email)
-
+	// Verify the user exists before issuing an OTP
+	user, err := h.store.GetUserByEmail(r.Context(), payload.Email)
 	if err != nil {
-		common.WriteErrorJSON(w, http.StatusInternalServerError, "Error getting user")
+		// Return a generic message to avoid email enumeration
+		common.WriteJSON(w, http.StatusOK, map[string]string{"message": "if that email is registered, a code has been sent"})
 		return
 	}
 
 	loginOtp, err := auth.GenerateSecureOTP()
-
 	if err != nil {
 		common.WriteErrorJSON(w, http.StatusInternalServerError, "Error generating OTP")
 		return
 	}
 
-	log.Printf("Login OTP for %s: %s", payload.Email, loginOtp)
+	// Store OTP token in PostgreSQL tokens table
+	_, err = h.store.CreateToken(r.Context(), user.ID, loginOtp, "otp", time.Now().Add(otpTTL))
+	if err != nil {
+		log.Printf("failed to save OTP token for %s: %v", payload.Email, err)
+		common.WriteErrorJSON(w, http.StatusInternalServerError, "Error saving OTP")
+		return
+	}
 
-	common.WriteJSON(w, http.StatusOK, struct {
-		OTP string `json:"otp"`
-	}{
-		OTP: loginOtp,
-	})
+	// Email the OTP — never return it in the response
+	if err := h.mailer.SendLoginOTP(payload.Email, loginOtp); err != nil {
+		log.Printf("failed to send OTP email to %s: %v", payload.Email, err)
+		common.WriteErrorJSON(w, http.StatusInternalServerError, "Error sending OTP email")
+		return
+	}
+
+	common.WriteJSON(w, http.StatusOK, map[string]string{"message": "if that email is registered, a code has been sent"})
 }
 
 func (h *Handler) VerifyLoginOTP(w http.ResponseWriter, r *http.Request) {
@@ -141,11 +155,23 @@ func (h *Handler) VerifyLoginOTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	user, err := h.store.GetUserByEmail(r.Context(), payload.Email)
-
 	if err != nil {
-		common.WriteErrorJSON(w, http.StatusInternalServerError, "Error getting user")
+		common.WriteErrorJSON(w, http.StatusUnauthorized, "invalid or expired OTP")
 		return
 	}
+
+	// Verify OTP token in database (must be un-used and un-expired)
+	tokenRecord, err := h.store.GetValidToken(r.Context(), user.ID, payload.OTP, "otp")
+	if err != nil {
+		common.WriteErrorJSON(w, http.StatusUnauthorized, "invalid or expired OTP")
+		return
+	}
+
+	// Mark OTP token used to prevent reuse
+	if err := h.store.MarkTokenUsed(r.Context(), tokenRecord.ID); err != nil {
+		log.Printf("failed to mark token as used: %v", err)
+	}
+
 
 	tokens, refreshTokenID, err := auth.CreateJWTs(
 		[]byte(h.config.JWTSecret),
