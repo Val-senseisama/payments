@@ -8,6 +8,7 @@ import (
 	"github.com/Val-senseisama/payments/cmd/config"
 	"github.com/Val-senseisama/payments/internal/common/auth"
 	"github.com/Val-senseisama/payments/internal/common/redis"
+	"github.com/Val-senseisama/payments/internal/domain/account"
 	"github.com/Val-senseisama/payments/internal/domain/company"
 	"github.com/Val-senseisama/payments/internal/domain/profiles"
 	"github.com/Val-senseisama/payments/internal/domain/users"
@@ -51,8 +52,9 @@ func (s *APIServer) mountUserRoutes(r chi.Router) {
 func (s *APIServer) mountCompanyRoutes(r chi.Router) {
 	companyStore := company.NewStore(s.db)
 	userStore := users.NewStore(s.db)
+	accountStore := account.NewStore(s.db)
 	redisStore := redis.NewRedisStore(s.rdb)
-	handler := company.NewHandler(companyStore, userStore, redisStore, s.config, s.auditStore, s.mailer)
+	handler := company.NewHandler(companyStore, userStore, redisStore, s.config, s.auditStore, s.mailer, accountStore)
 
 	r.Route("/companies", func(r chi.Router) {
 		handler.RegisterRoutes(r)
@@ -64,6 +66,15 @@ func (s *APIServer) mountProfileRoutes(r chi.Router) {
 	handler := profiles.NewHandler(profileStore, s.config, s.auditStore)
 
 	r.Route("/profiles", func(r chi.Router) {
+		handler.RegisterRoutes(r)
+	})
+}
+
+func (s *APIServer) mountAccountRoutes(r chi.Router) {
+	accountStore := account.NewStore(s.db)
+	handler := account.NewHandler(accountStore, s.auditStore)
+
+	r.Route("/accounts", func(r chi.Router) {
 		handler.RegisterRoutes(r)
 	})
 }
@@ -82,6 +93,7 @@ func (s *APIServer) Run() error {
 			r.Use(auth.AuthMiddleware([]byte(s.config.JWTSecret)))
 			s.mountCompanyRoutes(r)
 			s.mountProfileRoutes(r)
+			s.mountAccountRoutes(r)
 		})
 	})
 

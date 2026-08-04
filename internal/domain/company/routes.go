@@ -15,16 +15,17 @@ import (
 )
 
 type Handler struct {
-	store      types.CompanyStore
-	userStore  types.UserStore
-	redisStore types.RedisStore
-	config     config.Config
-	auditStore types.AuditStore
-	mailer     *mailer.Mailer
+	store        types.CompanyStore
+	userStore    types.UserStore
+	redisStore   types.RedisStore
+	config       config.Config
+	auditStore   types.AuditStore
+	mailer       *mailer.Mailer
+	accountStore types.AccountStore
 }
 
-func NewHandler(store types.CompanyStore, userStore types.UserStore, redisStore types.RedisStore, config config.Config, auditStore types.AuditStore, m *mailer.Mailer) *Handler {
-	return &Handler{store: store, userStore: userStore, redisStore: redisStore, config: config, auditStore: auditStore, mailer: m}
+func NewHandler(store types.CompanyStore, userStore types.UserStore, redisStore types.RedisStore, config config.Config, auditStore types.AuditStore, m *mailer.Mailer, accountStore types.AccountStore) *Handler {
+	return &Handler{store: store, userStore: userStore, redisStore: redisStore, config: config, auditStore: auditStore, mailer: m, accountStore: accountStore}
 }
 
 func (h *Handler) RegisterRoutes(router chi.Router) {
@@ -76,6 +77,11 @@ func (h *Handler) CreateCompany(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		log.Printf("failed to write audit log: %v", err)
+	}
+
+	// seed default accounts — non-fatal: company is already committed
+	if err := h.accountStore.SeedDefaultAccounts(r.Context(), company.ID); err != nil {
+		log.Printf("failed to seed default accounts for company %s: %v", company.ID, err)
 	}
 
 	common.WriteJSON(w, http.StatusCreated, company)

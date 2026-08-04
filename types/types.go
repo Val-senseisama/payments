@@ -8,6 +8,8 @@ import (
 	"github.com/google/uuid"
 )
 
+type ContextKey string
+
 // UserRole represents the authorized role of a user within a company
 type UserRole string
 
@@ -37,6 +39,15 @@ const (
 	AuditActionCompanyCreated AuditAction = "company.created"
 	AuditActionCompanyUpdated AuditAction = "company.updated"
 	AuditActionCompanyDeleted AuditAction = "company.deleted"
+)
+
+type AccountType string
+
+const (
+	AccountAsset     AccountType = "asset"
+	AccountLiability AccountType = "liability"
+	AccountRevenue   AccountType = "revenue"
+	AccountExpense   AccountType = "expense"
 )
 
 type UserStore interface {
@@ -72,6 +83,13 @@ type CompanyStore interface {
 	CreateInvitationToken(ctx context.Context, companyID uuid.UUID, email string, role UserRole, token string, expiresAt time.Time) (*InvitationToken, error)
 	GetInvitationToken(ctx context.Context, token string) (*InvitationToken, error)
 	MarkInvitationTokenAccepted(ctx context.Context, id uuid.UUID) error
+}
+
+type AccountStore interface {
+	CreateAccount(ctx context.Context, companyID uuid.UUID, profileID *uuid.UUID, aType AccountType, name string) (*Account, error)
+	GetAccountByID(ctx context.Context, id uuid.UUID) (*Account, error)
+	GetAccountsByCompany(ctx context.Context, companyID uuid.UUID) ([]*Account, error)
+	SeedDefaultAccounts(ctx context.Context, companyID uuid.UUID) error
 }
 
 type AuditStore interface {
@@ -133,6 +151,42 @@ type Profile struct {
 	DeletedAt *time.Time  `json:"deleted_at,omitempty"`
 }
 
+type Account struct {
+	ID            uuid.UUID   `json:"id"`
+	CompanyID     uuid.UUID   `json:"company_id"`
+	ProfileID     *uuid.UUID  `json:"profile_id,omitempty"` // nil for company-level defaults
+	Type          AccountType `json:"type"`
+	Name          string      `json:"name"`
+	CachedBalance int64       `json:"cached_balance"` // kobo, always 0 for now
+	CreatedAt     time.Time   `json:"created_at"`
+}
+
+type InvitationToken struct {
+	ID         uuid.UUID  `json:"id"`
+	CompanyID  uuid.UUID  `json:"company_id"`
+	Email      string     `json:"email"`
+	Role       UserRole   `json:"role"`
+	Token      string     `json:"token"`
+	ExpiresAt  time.Time  `json:"expires_at"`
+	AcceptedAt *time.Time `json:"accepted_at,omitempty"`
+	CreatedAt  time.Time  `json:"created_at"`
+}
+
+type Token struct {
+	ID        uuid.UUID  `json:"id"`
+	UserID    uuid.UUID  `json:"user_id"`
+	Token     string     `json:"token"`
+	Type      string     `json:"type"`
+	ExpiresAt time.Time  `json:"expires_at"`
+	UsedAt    *time.Time `json:"used_at,omitempty"`
+	CreatedAt time.Time  `json:"created_at"`
+}
+
+type TokenPair struct {
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
+}
+
 // CreateCompanyPayload represents HTTP request payload for creating a company
 type CreateCompanyPayload struct {
 	Name string `json:"name" validate:"required"`
@@ -174,8 +228,8 @@ type UpdateProfilePayload struct {
 }
 
 type InviteUserToCompanyPayload struct {
-	Email     string   `json:"email" validate:"required,email"`
-	Role      UserRole `json:"role,omitempty"`
+	Email     string    `json:"email" validate:"required,email"`
+	Role      UserRole  `json:"role,omitempty"`
 	CompanyID uuid.UUID `json:"company_id" validate:"required"`
 }
 
@@ -183,32 +237,8 @@ type AcceptCompanyInvitePayload struct {
 	Token string `json:"token" validate:"required"`
 }
 
-type InvitationToken struct {
-	ID        uuid.UUID  `json:"id"`
-	CompanyID uuid.UUID  `json:"company_id"`
-	Email     string     `json:"email"`
-	Role      UserRole   `json:"role"`
-	Token     string     `json:"token"`
-	ExpiresAt time.Time  `json:"expires_at"`
-	AcceptedAt *time.Time `json:"accepted_at,omitempty"`
-	CreatedAt time.Time  `json:"created_at"`
+type CreateAccountPayload struct {
+	ProfileID *uuid.UUID  `json:"profile_id,omitempty"`
+	Type      AccountType `json:"type" validate:"required,oneof=asset liability revenue expense"`
+	Name      string      `json:"name" validate:"required"`
 }
-
-type Token struct {
-	ID        uuid.UUID  `json:"id"`
-	UserID    uuid.UUID  `json:"user_id"`
-	Token     string     `json:"token"`
-	Type      string     `json:"type"`
-	ExpiresAt time.Time  `json:"expires_at"`
-	UsedAt    *time.Time `json:"used_at,omitempty"`
-	CreatedAt time.Time  `json:"created_at"`
-}
-
-type TokenPair struct {
-	AccessToken  string `json:"access_token"`
-	RefreshToken string `json:"refresh_token"`
-}
-
-type ContextKey string
-
-
