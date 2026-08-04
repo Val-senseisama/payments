@@ -9,6 +9,7 @@ import (
 	"github.com/Val-senseisama/payments/internal/common/auth"
 	"github.com/Val-senseisama/payments/internal/common/redis"
 	"github.com/Val-senseisama/payments/internal/domain/account"
+	"github.com/Val-senseisama/payments/internal/domain/audit"
 	"github.com/Val-senseisama/payments/internal/domain/company"
 	"github.com/Val-senseisama/payments/internal/domain/profiles"
 	"github.com/Val-senseisama/payments/internal/domain/users"
@@ -20,22 +21,24 @@ import (
 )
 
 type APIServer struct {
-	addr       string
-	config     config.Config
-	db         *sql.DB
-	rdb        *redisClient.Client
-	auditStore types.AuditStore
-	mailer     *mailer.Mailer
+	addr        string
+	config      config.Config
+	db          *sql.DB
+	rdb         *redisClient.Client
+	auditStore  types.AuditStore
+	auditWorker *audit.Worker
+	mailer      *mailer.Mailer
 }
 
 func NewAPIServer(addr string, cfg config.Config, db *sql.DB, rdb *redisClient.Client, auditStore types.AuditStore) *APIServer {
 	return &APIServer{
-		addr:       addr,
-		config:     cfg,
-		db:         db,
-		rdb:        rdb,
-		auditStore: auditStore,
-		mailer:     mailer.New(cfg.ResendAPIKey, cfg.EmailFrom),
+		addr:        addr,
+		config:      cfg,
+		db:          db,
+		rdb:         rdb,
+		auditStore:  auditStore,
+		auditWorker: audit.NewWorker(auditStore, 100),
+		mailer:      mailer.New(cfg.ResendAPIKey, cfg.EmailFrom),
 	}
 }
 
