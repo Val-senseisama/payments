@@ -41,11 +41,15 @@ func (s *Store) PostTransaction(ctx context.Context, txnID, companyID, debitAcco
 		return fmt.Errorf("failed to insert ledger entries: %w", err)
 	}
 
-	// 3. Update cached balance for debit account (with cross-tenant company_id guard & insufficient funds check)
+	// 3. Update cached balance for debit account (Asset/Expense increase on Debit; Liability/Revenue decrease)
 	debitUpdateQuery := `
 		UPDATE accounts 
-		SET cached_balance = cached_balance - $1 
-		WHERE id = $2 AND company_id = $3 AND (type IN ('liability', 'revenue') OR cached_balance >= $1)
+		SET cached_balance = CASE 
+			WHEN type IN ('asset', 'expense') THEN cached_balance + $1 
+			ELSE cached_balance - $1 
+		END 
+		WHERE id = $2 AND company_id = $3 
+		  AND (type IN ('asset', 'expense') OR cached_balance >= $1)
 	`
 	res, err := tx.ExecContext(ctx, debitUpdateQuery, amount, debitAccountID, companyID)
 	if err != nil {
@@ -59,11 +63,15 @@ func (s *Store) PostTransaction(ctx context.Context, txnID, companyID, debitAcco
 		return fmt.Errorf("insufficient funds or debit account does not belong to company")
 	}
 
-	// 4. Update cached balance for credit account (with cross-tenant company_id guard)
+	// 4. Update cached balance for credit account (Liability/Revenue increase on Credit; Asset/Expense decrease)
 	creditUpdateQuery := `
 		UPDATE accounts 
-		SET cached_balance = cached_balance + $1 
-		WHERE id = $2 AND company_id = $3
+		SET cached_balance = CASE 
+			WHEN type IN ('liability', 'revenue') THEN cached_balance + $1 
+			ELSE cached_balance - $1 
+		END 
+		WHERE id = $2 AND company_id = $3 
+		  AND (type IN ('liability', 'revenue') OR cached_balance >= $1)
 	`
 	res, err = tx.ExecContext(ctx, creditUpdateQuery, amount, creditAccountID, companyID)
 	if err != nil {
@@ -74,7 +82,7 @@ func (s *Store) PostTransaction(ctx context.Context, txnID, companyID, debitAcco
 		return err
 	}
 	if rows == 0 {
-		return fmt.Errorf("credit account does not belong to company")
+		return fmt.Errorf("insufficient funds or credit account does not belong to company")
 	}
 
 	// 5. Update transaction status to completed
