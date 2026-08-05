@@ -3,10 +3,13 @@ package types
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"time"
 
 	"github.com/google/uuid"
 )
+
+var ErrNotFound = errors.New("resource not found")
 
 type ContextKey string
 
