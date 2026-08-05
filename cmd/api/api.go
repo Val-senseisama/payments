@@ -12,6 +12,7 @@ import (
 	"github.com/Val-senseisama/payments/internal/domain/audit"
 	"github.com/Val-senseisama/payments/internal/domain/company"
 	"github.com/Val-senseisama/payments/internal/domain/ledger"
+	"github.com/Val-senseisama/payments/internal/domain/payments"
 	"github.com/Val-senseisama/payments/internal/domain/profiles"
 	"github.com/Val-senseisama/payments/internal/domain/transactions"
 	"github.com/Val-senseisama/payments/internal/domain/users"
@@ -106,6 +107,20 @@ func (s *APIServer) mountLedgerRoutes(r chi.Router) {
 	})
 }
 
+func (s *APIServer) mountPaymentRoutes(r chi.Router) {
+	paymentStore := payments.NewStore(s.db)
+	txnStore := transactions.NewStore(s.db)
+	redisStore := redis.NewRedisStore(s.rdb)
+	mockPSP := payments.NewMockPSPAdapter("mock")
+
+	service := payments.NewService(paymentStore, txnStore, redisStore, []types.PSPAdapter{mockPSP}, s.auditWorker)
+	handler := payments.NewHandler(service, paymentStore)
+
+	r.Route("/payments", func(r chi.Router) {
+		handler.RegisterRoutes(r)
+	})
+}
+
 func (s *APIServer) Run() error {
 
 	router := chi.NewRouter()
@@ -123,6 +138,7 @@ func (s *APIServer) Run() error {
 			s.mountAccountRoutes(r)
 			s.mountTransactionRoutes(r)
 			s.mountLedgerRoutes(r)
+			s.mountPaymentRoutes(r)
 		})
 	})
 

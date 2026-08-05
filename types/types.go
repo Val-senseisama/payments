@@ -84,6 +84,14 @@ const (
 	EntryCredit EntryDirection = "credit"
 )
 
+type PaymentAttemptStatus string
+
+const (
+	PasPending PaymentAttemptStatus = "pending"
+	PasFailed  PaymentAttemptStatus = "failed"
+	PasSuccess PaymentAttemptStatus = "success"
+)
+
 type Transaction struct {
 	ID        uuid.UUID         `json:"id"`
 	CompanyID uuid.UUID         `json:"company_id"`
@@ -102,6 +110,19 @@ type Entry struct {
 	Amount        int64          `json:"amount"`
 	Direction     EntryDirection `json:"direction"`
 	CreatedAt     time.Time      `json:"created_at"`
+}
+
+type ChargeRequest struct {
+	Amount    int64  // in smallest currency unit (kobo)
+	Currency  string // e.g. "NGN"
+	Reference string // Unique internal reference
+	Metadata  map[string]any
+}
+type ChargeResponse struct {
+	Success           bool
+	ExternalReference string
+	ResponseRaw       json.RawMessage
+	ErrorMessage      *string
 }
 
 type CreateTransactionPayload struct {
@@ -173,6 +194,17 @@ type AuditStore interface {
 	CreateAuditLog(ctx context.Context, log *AuditLog) error
 	GetAuditLogsByEntity(ctx context.Context, entityType string, entityID uuid.UUID) ([]*AuditLog, error)
 	GetAuditLogsByCompany(ctx context.Context, companyID uuid.UUID, limit, offset int) ([]*AuditLog, error)
+}
+
+type PSPAdapter interface {
+	Name() string
+	Charge(ctx context.Context, req ChargeRequest) (*ChargeResponse, error)
+}
+
+type PaymentStore interface{
+	GetPaymentAttemptsByTransactionID(ctx context.Context, txnID uuid.UUID) ([]*PaymentAttempt, error)
+	UpdatePaymentAttemptStatus(ctx context.Context, attempt *PaymentAttempt) (*PaymentAttempt, error)
+	CreatePaymentAttempt(ctx context.Context, attempt *PaymentAttempt) (*PaymentAttempt, error)
 }
 
 // AuditLog represents a lean record in the audit_log table
@@ -264,6 +296,18 @@ type TokenPair struct {
 	RefreshToken string `json:"refresh_token"`
 }
 
+type PaymentAttempt struct {
+	ID                uuid.UUID            `json:"id"`
+	TransactionID     uuid.UUID            `json:"transaction_id"`
+	PSP               string               `json:"psp"`
+	Status            PaymentAttemptStatus `json:"status"`
+	ExternalReference string               `json:"external_reference"`
+	RetryCount        int                  `json:"retry_count"`
+	NextRetryAt       time.Time            `json:"next_retry_at"`
+	Response          json.RawMessage      `json:"response"`
+	CreatedAt         time.Time            `json:"created_at"`
+}
+
 // CreateCompanyPayload represents HTTP request payload for creating a company
 type CreateCompanyPayload struct {
 	Name string `json:"name" validate:"required"`
@@ -318,4 +362,9 @@ type CreateAccountPayload struct {
 	ProfileID *uuid.UUID  `json:"profile_id,omitempty"`
 	Type      AccountType `json:"type" validate:"required,oneof=asset liability revenue expense"`
 	Name      string      `json:"name" validate:"required"`
+}
+
+type ProcessPaymentPayload struct {
+	TransactionID uuid.UUID `json:"transaction_id" validate:"required"`
+	PSPName       string    `json:"psp_name" validate:"required"`
 }

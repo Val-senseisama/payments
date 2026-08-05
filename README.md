@@ -38,9 +38,14 @@ A robust, production-grade Go REST API for multi-tenant payment processing, orga
 │   │   ├── auth/     # JWT validation, identity context, and RBAC helpers
 │   │   └── redis/    # Redis store implementation for refresh token session management
 │   └── domain/       # Core business domains
-│       ├── audit/    # Audit log store and queries
-│       ├── company/  # Company management routes and store
-│       └── users/    # User registration, authentication, and store
+│       ├── account/     # Chart of accounts management & balance tracking
+│       ├── audit/       # Background audit log worker and query store
+│       ├── company/     # Multi-tenant company management and onboarding
+│       ├── ledger/      # Double-entry posting engine & journal entry validation
+│       ├── payments/    # PSP adapters, charge execution, and payment attempts
+│       ├── profiles/    # Counterparty profiles & invitation token management
+│       ├── transactions/# Transaction engine & SSE streaming API
+│       └── users/       # User authentication, OTP, and session management
 └── types/            # Shared data models, structs, and interfaces
 ```
 
@@ -121,3 +126,28 @@ make run
 - `GET /api/v1/companies/{id}` - Get company details (Member / Admin / SuperAdmin)
 - `PUT /api/v1/companies/{id}` - Update company details (Admin / SuperAdmin)
 - `DELETE /api/v1/companies/{id}` - Soft delete company (Admin / SuperAdmin)
+
+### Profiles & Invites (`/api/v1/profiles`)
+- `POST /api/v1/profiles` - Create a counterparty profile (customer, vendor, employee)
+- `GET /api/v1/profiles` - List company profiles
+- `POST /api/v1/companies/invite` - Send company invitation token
+- `POST /api/v1/companies/accept-invite` - Accept invitation token
+
+### Accounts (`/api/v1/accounts`)
+- `POST /api/v1/accounts` - Create a chart of accounts entry (asset, liability, revenue, expense)
+- `GET /api/v1/accounts` - List company accounts
+- `GET /api/v1/accounts/{id}` - Get account details
+
+### Transactions (`/api/v1/transactions`)
+- `POST /api/v1/transactions` - Create a new transaction (payment_in, payment_out, transfer)
+- `GET /api/v1/transactions` - List company transactions
+- `GET /api/v1/transactions/stream` - SSE endpoint for live transaction updates
+
+### Ledger (`/api/v1/ledger`)
+- `POST /api/v1/ledger/post` - Post balanced journal entries for a completed transaction
+- `GET /api/v1/ledger/entries/{txn_id}` - Get double-entry ledger records for a transaction
+
+### Payment Processing & Attempts (`/api/v1/payments`)
+- `POST /api/v1/payments/process` - Execute payment charge through a PSP adapter with Redis distributed locking
+- `GET /api/v1/payments/attempts/{txn_id}` - Retrieve all payment attempts and gateway response payloads for a transaction
+
