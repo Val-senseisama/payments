@@ -160,12 +160,12 @@ body {
 /* Main Layout */
 .main-wrapper {
   margin-left: 240px;
-  flex: 1;
-  padding: 36px 48px;
+  width: calc(100% - 240px);
+  min-height: 100vh;
+  padding: 32px 40px;
   display: flex;
   flex-direction: column;
   gap: 32px;
-  max-width: 1300px;
 }
 
 /* Header Bar */
