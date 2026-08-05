@@ -4,6 +4,9 @@ import (
 	"database/sql"
 	"log"
 	"net/http"
+	"os"
+	"path"
+	"strings"
 
 	"github.com/Val-senseisama/payments/cmd/config"
 	"github.com/Val-senseisama/payments/internal/common/auth"
@@ -144,8 +147,25 @@ func (s *APIServer) Run() error {
 
 	router.Get("/health", s.handleHealth)
 
+	// Mount Web Dashboard Static Files
+	workDir, _ := os.Getwd()
+	filesDir := http.Dir(path.Join(workDir, "web"))
+	fileServer(router, "/", filesDir)
+
 	log.Println("Server started on port ", s.addr)
 	return http.ListenAndServe(s.addr, router)
+}
+
+func fileServer(r chi.Router, pathStr string, root http.FileSystem) {
+	if strings.HasSuffix(pathStr, "/") && pathStr != "/" {
+		pathStr = pathStr[:len(pathStr)-1]
+	}
+
+	fs := http.StripPrefix(pathStr, http.FileServer(root))
+
+	r.Get(pathStr+"*", func(w http.ResponseWriter, r *http.Request) {
+		fs.ServeHTTP(w, r)
+	})
 }
 
 // health

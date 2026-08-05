@@ -79,9 +79,23 @@ JWT_ACCESS_EXPIRATION_SECONDS=900
 JWT_REFRESH_EXPIRATION_SECONDS=604800
 ```
 
-### Running Database Migrations
+### Running with Docker Compose (Recommended)
 
-Apply database migrations:
+Start PostgreSQL, Redis, auto-apply database migrations, and launch the API server in containerized containers:
+
+```bash
+docker compose up --build
+```
+
+To stop containers and clean up volumes:
+
+```bash
+docker compose down -v
+```
+
+### Running Database Migrations (Local)
+
+Apply database migrations manually:
 
 ```bash
 make migrate-up
