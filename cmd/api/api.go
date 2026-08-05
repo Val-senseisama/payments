@@ -11,7 +11,9 @@ import (
 	"github.com/Val-senseisama/payments/internal/domain/account"
 	"github.com/Val-senseisama/payments/internal/domain/audit"
 	"github.com/Val-senseisama/payments/internal/domain/company"
+	"github.com/Val-senseisama/payments/internal/domain/ledger"
 	"github.com/Val-senseisama/payments/internal/domain/profiles"
+	"github.com/Val-senseisama/payments/internal/domain/transactions"
 	"github.com/Val-senseisama/payments/internal/domain/users"
 	"github.com/Val-senseisama/payments/internal/mailer"
 	"github.com/Val-senseisama/payments/types"
@@ -82,6 +84,28 @@ func (s *APIServer) mountAccountRoutes(r chi.Router) {
 	})
 }
 
+func (s *APIServer) mountTransactionRoutes(r chi.Router) {
+	txnStore := transactions.NewStore(s.db)
+	redisStore := redis.NewRedisStore(s.rdb)
+	handler := transactions.NewHandler(txnStore, redisStore, s.config, s.auditWorker)
+
+	r.Route("/transactions", func(r chi.Router) {
+		handler.RegisterRoutes(r)
+	})
+}
+
+func (s *APIServer) mountLedgerRoutes(r chi.Router) {
+	ledgerStore := ledger.NewStore(s.db)
+	txnStore := transactions.NewStore(s.db)
+	redisStore := redis.NewRedisStore(s.rdb)
+	postWorker := ledger.NewPostWorker(ledgerStore, txnStore, redisStore, s.auditWorker)
+	handler := ledger.NewHandler(ledgerStore, txnStore, postWorker)
+
+	r.Route("/ledger", func(r chi.Router) {
+		handler.RegisterRoutes(r)
+	})
+}
+
 func (s *APIServer) Run() error {
 
 	router := chi.NewRouter()
@@ -97,6 +121,8 @@ func (s *APIServer) Run() error {
 			s.mountCompanyRoutes(r)
 			s.mountProfileRoutes(r)
 			s.mountAccountRoutes(r)
+			s.mountTransactionRoutes(r)
+			s.mountLedgerRoutes(r)
 		})
 	})
 

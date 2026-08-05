@@ -22,6 +22,10 @@ func NewWorker(store types.AuditStore, bufSize int) *Worker {
 	return w
 }
 
+func (w *Worker) Stop() {
+	close(w.ch)
+}
+
 func (w *Worker) Send(logEntry *types.AuditLog) {
 	select {
 	case w.ch <- logEntry:

@@ -60,10 +60,87 @@ type UserStore interface {
 	MarkTokenUsed(ctx context.Context, id uuid.UUID) error
 }
 
+type TransactionType string
+
+const (
+	TxnPaymentIn  TransactionType = "payment_in"
+	TxnPaymentOut TransactionType = "payment_out"
+	TxnTransfer   TransactionType = "transfer"
+)
+
+type TransactionStatus string
+
+const (
+	TxnStatusPending    TransactionStatus = "pending"
+	TxnStatusProcessing TransactionStatus = "processing"
+	TxnStatusCompleted  TransactionStatus = "completed"
+	TxnStatusFailed     TransactionStatus = "failed"
+)
+
+type EntryDirection string
+
+const (
+	EntryDebit  EntryDirection = "debit"
+	EntryCredit EntryDirection = "credit"
+)
+
+type Transaction struct {
+	ID        uuid.UUID         `json:"id"`
+	CompanyID uuid.UUID         `json:"company_id"`
+	Reference string            `json:"reference"`
+	Type      TransactionType   `json:"type"`
+	Amount    int64             `json:"amount"` // in kobo (NGN * 100)
+	Status    TransactionStatus `json:"status"`
+	CreatedBy uuid.UUID         `json:"created_by"`
+	CreatedAt time.Time         `json:"created_at"`
+}
+
+type Entry struct {
+	ID            uuid.UUID      `json:"id"`
+	TransactionID uuid.UUID      `json:"transaction_id"`
+	AccountID     uuid.UUID      `json:"account_id"`
+	Amount        int64          `json:"amount"`
+	Direction     EntryDirection `json:"direction"`
+	CreatedAt     time.Time      `json:"created_at"`
+}
+
+type CreateTransactionPayload struct {
+	Reference string          `json:"reference" validate:"required"`
+	Type      TransactionType `json:"type" validate:"required,oneof=payment_in payment_out transfer"`
+	Amount    int64           `json:"amount" validate:"required,gt=0"`
+}
+
+type PostLedgerPayload struct {
+	TransactionID uuid.UUID `json:"transaction_id" validate:"required"`
+	DebitAccount  uuid.UUID `json:"debit_account" validate:"required"`
+	CreditAccount uuid.UUID `json:"credit_account" validate:"required"`
+}
+
+type TransactionStore interface {
+	CreateTransaction(ctx context.Context, companyID, createdBy uuid.UUID, ref string, tType TransactionType, amount int64) (*Transaction, error)
+	GetTransactionByID(ctx context.Context, id uuid.UUID) (*Transaction, error)
+	GetTransactionsByCompany(ctx context.Context, companyID uuid.UUID) ([]*Transaction, error)
+	UpdateTransactionStatus(ctx context.Context, id uuid.UUID, status TransactionStatus) error
+}
+
+type LedgerStore interface {
+	PostTransaction(ctx context.Context, txnID, companyID, debitAccountID, creditAccountID uuid.UUID, amount int64) error
+	GetEntriesByTransaction(ctx context.Context, txnID uuid.UUID) ([]*Entry, error)
+}
+
 type RedisStore interface {
 	SaveRefreshToken(ctx context.Context, userID string, tokenID string, ttl time.Duration) error
 	GetRefreshToken(ctx context.Context, userID string) (string, error)
 	DeleteRefreshToken(ctx context.Context, userID string) error
+	SetIdempotencyKey(ctx context.Context, key string, value []byte, ttl time.Duration) error
+	GetIdempotencyKey(ctx context.Context, key string) ([]byte, error)
+	AcquirePostingLock(ctx context.Context, txnID string, ttl time.Duration) (bool, error)
+	ReleasePostingLock(ctx context.Context, txnID string) error
+	PublishTransactionUpdate(ctx context.Context, companyID string, payload []byte) error
+	EnqueueLedgerJob(ctx context.Context, payload []byte) error
+	DequeueLedgerJob(ctx context.Context, timeout time.Duration) ([]byte, error)
+	EnqueueDLQJob(ctx context.Context, payload []byte) error
+	SubscribeTransactionUpdates(ctx context.Context, companyID string) (<-chan string, func())
 }
 
 type ProfileStore interface {
