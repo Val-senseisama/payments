@@ -18,6 +18,10 @@ func NewStore(db *sql.DB) *Store {
 }
 
 func (s *Store) PostTransaction(ctx context.Context, txnID, companyID, debitAccountID, creditAccountID uuid.UUID, amount int64) error {
+	if debitAccountID == creditAccountID {
+		return fmt.Errorf("debit and credit accounts must differ")
+	}
+
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin ledger posting transaction: %w", err)
@@ -30,7 +34,31 @@ func (s *Store) PostTransaction(ctx context.Context, txnID, companyID, debitAcco
 		return fmt.Errorf("transaction already posted or invalid: %w", err)
 	}
 
-	// 2. Bulk insert debit & credit entries in a single SQL roundtrip
+	// 2. Lock both accounts up front, ordered by id, so concurrent postings between the
+	// same pair always take the row locks in the same order and cannot deadlock. This has
+	// to happen before the entries insert: the FK on entries.account_id takes its own
+	// locks on these rows in VALUES order, which is the opposite order half the time.
+	// Matching 2 rows here also proves both accounts exist and belong to the company, so
+	// a later zero-row update can only mean insufficient funds.
+	lockQuery := `SELECT id FROM accounts WHERE id IN ($1, $2) AND company_id = $3 ORDER BY id FOR UPDATE`
+	lockRows, err := tx.QueryContext(ctx, lockQuery, debitAccountID, creditAccountID, companyID)
+	if err != nil {
+		return fmt.Errorf("failed to lock ledger accounts: %w", err)
+	}
+	locked := 0
+	for lockRows.Next() {
+		locked++
+	}
+	if err := lockRows.Err(); err != nil {
+		lockRows.Close()
+		return fmt.Errorf("failed to lock ledger accounts: %w", err)
+	}
+	lockRows.Close()
+	if locked != 2 {
+		return fmt.Errorf("debit or credit account does not exist or does not belong to company")
+	}
+
+	// 3. Bulk insert debit & credit entries in a single SQL roundtrip
 	entriesQuery := `
 		INSERT INTO entries (transaction_id, account_id, amount, direction)
 		VALUES 
@@ -41,7 +69,7 @@ func (s *Store) PostTransaction(ctx context.Context, txnID, companyID, debitAcco
 		return fmt.Errorf("failed to insert ledger entries: %w", err)
 	}
 
-	// 3. Update cached balance for debit account (Asset/Expense increase on Debit; Liability/Revenue decrease)
+	// 4. Update cached balance for debit account (Asset/Expense increase on Debit; Liability/Revenue decrease)
 	debitUpdateQuery := `
 		UPDATE accounts 
 		SET cached_balance = CASE 
@@ -60,10 +88,10 @@ func (s *Store) PostTransaction(ctx context.Context, txnID, companyID, debitAcco
 		return err
 	}
 	if rows == 0 {
-		return fmt.Errorf("insufficient funds or debit account does not belong to company")
+		return fmt.Errorf("insufficient funds in debit account %s", debitAccountID)
 	}
 
-	// 4. Update cached balance for credit account (Liability/Revenue increase on Credit; Asset/Expense decrease)
+	// 5. Update cached balance for credit account (Liability/Revenue increase on Credit; Asset/Expense decrease)
 	creditUpdateQuery := `
 		UPDATE accounts 
 		SET cached_balance = CASE 
@@ -82,10 +110,10 @@ func (s *Store) PostTransaction(ctx context.Context, txnID, companyID, debitAcco
 		return err
 	}
 	if rows == 0 {
-		return fmt.Errorf("insufficient funds or credit account does not belong to company")
+		return fmt.Errorf("insufficient funds in credit account %s", creditAccountID)
 	}
 
-	// 5. Update transaction status to completed
+	// 6. Update transaction status to completed
 	updateTxnQuery := `UPDATE transactions SET status = 'completed' WHERE id = $1 AND company_id = $2`
 	if _, err := tx.ExecContext(ctx, updateTxnQuery, txnID, companyID); err != nil {
 		return fmt.Errorf("failed to update transaction status: %w", err)
